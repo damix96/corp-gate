@@ -18,7 +18,8 @@ class VaultHardeningTests {
 
   private testToggleMaskEncrypted = (): void => {
     const file = join(this.dir, 'toggle-mask.db');
-    let db = new VaultDatabase(file);
+    const provider: SecretProvider = { id: process.platform === 'darwin' ? 'macos-keychain' : process.platform === 'linux' ? 'linux-secret-service' : 'windows-dpapi', encrypt: (v, c) => Buffer.from(v.map((b, i) => b ^ c[i % c.length])), decrypt: (v, c) => Buffer.from(v.map((b, i) => b ^ c[i % c.length])) };
+    let db = new VaultDatabase(file, provider);
     let vault = new VaultStore(db);
     const created = vault.setManualSecret('MASK_TARGET', 'secret-value-keep-me', 'desc', true);
     assert.equal(created.isSecret, true);
@@ -27,7 +28,7 @@ class VaultHardeningTests {
     assert.equal(vault.toggleSecretMask('MASK_TARGET'), true);
     assert.equal(vault.getManualSecrets()[0].maskInAi, false);
     db.close();
-    db = new VaultDatabase(file);
+    db = new VaultDatabase(file, provider);
     vault = new VaultStore(db);
     const reloaded = vault.getManualSecrets().find(entry => entry.key === 'MASK_TARGET')!;
     assert.equal(reloaded.isSecret, true);
