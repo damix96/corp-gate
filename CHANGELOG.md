@@ -5,6 +5,20 @@ All notable changes to CorpGate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-27
+
+### Added
+- Per-connection proxy routing (`direct`, `system`, `custom`) with `NO_PROXY` matching via cached `undici.ProxyAgent` and `GET /api/system-proxy`.
+- Proxy configuration UI in the connection modal with automatic `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` pre-fill when `System proxy` is selected.
+- Built-in JWT detection in `pat_api_keys` with order-independent deduplication tests against `pat_env_like`.
+
+### Security
+- Required `cg_session` or `Bearer <adminToken>` on `POST /api/secret-input/session` and `POST /api/secret-input/requests`, using a scoped `HttpOnly` `cg_intake` cookie for active MCP input forms.
+
+### Fixed
+- Filtered code expressions (`()`, `[]`, `process.env.`, `os.environ`, `config.`) out of `EnvLikeRule` while preserving dot-separated values such as JWTs.
+- Cleaned up legacy `GV_PROBE` text in `probe.ts` and removed the stale internal path from `/api/client-help`.
+
 ## [1.0.0] - 2026-11-27
 
 ### Added

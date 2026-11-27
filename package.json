@@ -1,6 +1,6 @@
 {
   "name": "corp-gate",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Let AI agents use service URLs, passwords and API tokens without sending stored secret values to the model. Local Vault, MCP and masking proxy.",
   "type": "module",
   "main": "dist/index.js",
