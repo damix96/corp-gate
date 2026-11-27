@@ -100,6 +100,7 @@ export class ProxyServerTestRunner {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: 'should fail 404' }] }),
     });
+    await unconfigured.text();
     if (unconfigured.status !== 404) throw new Error('Expected 404 for unconfigured /v1/chat/completions');
 
     const healthRes = await fetch(baseUrl + '/health');
@@ -113,11 +114,13 @@ export class ProxyServerTestRunner {
     }
 
     const rootRes = await fetch(baseUrl + '/');
+    await rootRes.text();
     if (rootRes.status !== 200) throw new Error('Root check failed');
 
     const appJsPath = dashHtml.match(/<script\b[^>]*\bsrc="([^"]+)"/)?.[1];
     if (!appJsPath?.startsWith('/assets/')) throw new Error('Dashboard script reference missing');
     const appJsRes = await fetch(baseUrl + appJsPath);
+    await appJsRes.text();
     if (appJsRes.status !== 200) throw new Error('Static asset check failed');
 
     const addSecretRes = await fetch(baseUrl + '/api/vault/secret', {
