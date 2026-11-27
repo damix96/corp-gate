@@ -34,7 +34,7 @@ class NativeLaunchTests {
     } finally {
       if (registered) SystemCommands.require(SystemCommands.run, 'schtasks.exe', ['/Delete', '/TN', name, '/F'], 'Temporary native task cleanup failed.');
       task.remove(false);
-      rmSync(root, { recursive: true, force: true });
+      try { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {}
     }
   };
 }
