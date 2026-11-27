@@ -3,14 +3,14 @@ import { request as httpRequest } from 'node:http';
 import Fastify from 'fastify';
 import { CorpGateProxyServer } from '../src/proxy/server.js';
 import { RouteRegistry } from '../src/proxy/route-registry.js';
-import { SecretProtection } from '../src/security/secret-protection.js';
+import { SecretProvider } from '../src/security/secret-provider.js';
 import { VaultDatabase } from '../src/vault/sqlite-db.js';
 import { VaultStore } from '../src/vault/store.js';
 import { TransactionRecord } from '../src/telemetry/types.js';
 
 class AdminRegressionTests {
-  private protection = new SecretProtection({ name: 'test-memory', encrypt: value => Buffer.from(value), decrypt: value => Buffer.from(value) });
-  private db = new VaultDatabase(':memory:', this.protection);
+  private provider: SecretProvider = { id: 'linux-secret-service', encrypt: value => Buffer.from(value), decrypt: value => Buffer.from(value) };
+  private db = new VaultDatabase(':memory:', this.provider);
   private vault = new VaultStore(this.db);
   private upstream = Fastify();
   private proxy = new CorpGateProxyServer(this.vault, { port: 0 });

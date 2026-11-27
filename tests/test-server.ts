@@ -227,7 +227,6 @@ export class ProxyServerTestRunner {
 
     await this.proxyServer.close();
     await this.mockApp.close();
-    this.vault.close();
     console.log('All tests passed successfully!');
     process.exit(0);
   };
