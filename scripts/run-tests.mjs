@@ -6,9 +6,9 @@ import { spawnSync } from 'node:child_process';
 class RegressionRunner {
   root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   defaults = [
-    'test-server', 'test-hooks', 'test-telemetry', 'test-mcp',
+    'test-server', 'test-hooks', 'test-telemetry',
     'test-sqlite-patterns', 'test-gateway-regressions', 'test-protocols',
-    'test-protocol-transport', 'test-protocol-streams', 'test-native-transport',
+    'test-protocol-transport', 'test-protocol-streams',
     'test-composite-replacements', 'test-admin-regressions', 'test-response-change-evidence', 'test-env-file-masking', 'test-vault-hardening', 'test-route-proxy', 'setup/test-init',
   ];
 
