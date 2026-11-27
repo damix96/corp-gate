@@ -25,27 +25,38 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Start Linux Secret Service
+      - name: Install Linux Secret Service
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gnome-keyring dbus-x11
-          eval "$(dbus-launch --sh-syntax)"
-          export DBUS_SESSION_BUS_ADDRESS
-          export GNOME_KEYRING_CONTROL="${RUNNER_TEMP}/gnome-keyring"
-          mkdir -p "$GNOME_KEYRING_CONTROL"
-          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
-          echo "GNOME_KEYRING_CONTROL=$GNOME_KEYRING_CONTROL" >> "$GITHUB_ENV"
-          printf '' | gnome-keyring-daemon --login --components=secrets
-          eval "$(gnome-keyring-daemon --start --components=secrets)"
+          sudo apt-get install -y -qq gnome-keyring dbus-x11 libsecret-tools
       - run: npm ci
       - run: npm run build
       - run: npm run check:ui
+      - name: Run test suite (Linux with Secret Service)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -e -c '
+            eval "$(gnome-keyring-daemon --start --components=secrets)"
+            printf "ci" | gnome-keyring-daemon --unlock --components=secrets
+            secret-tool store --label="ci-probe" service corpgate-ci account probe <<< "ok"
+            test "$(secret-tool lookup service corpgate-ci account probe)" = "ok"
+            npm test
+            npm run test:secrets
+            npm run test:variables
+            npm run test:installation
+            npm run test:runtime
+          '
       - run: npm test
+        if: runner.os != 'Linux'
       - run: npm run test:secrets
+        if: runner.os != 'Linux'
       - run: npm run test:variables
+        if: runner.os != 'Linux'
       - run: npm run test:installation
+        if: runner.os != 'Linux'
       - run: npm run test:runtime
+        if: runner.os != 'Linux'
       - run: npm run test:installation:native
         if: runner.os == 'Windows'
       - run: npm run verify:pack
