@@ -4,6 +4,7 @@ import { CorpGateRuntime } from './service.js';
 import { RuntimeLauncher } from './launcher.js';
 import { SetupCommand } from '../setup/command.js';
 import { AutostartCommand } from '../setup/autostart-command.js';
+import { InitCommand } from '../setup/init-command.js';
 import { RuntimeDiagnostics } from './diagnostics.js';
 import { RuntimeProbe } from './probe.js';
 import { RuntimeCredentials } from './credentials.js';
@@ -20,10 +21,12 @@ export class RuntimeCommand {
   public run = async (input = process.argv.slice(2), defaults: RuntimeOptions = {}): Promise<void> => {
     const args = new RuntimeArguments(input, defaults);
     if (args.values.help) {
-      console.log('npx corp-gate <start|stop|restart|status|open|doctor|probe|setup|autostart|mcp-bridge> [--port N] [--data-dir PATH] [--db PATH]\nsetup [--client codex|claude|cursor] prints instructions only\nautostart [shortcut|scheduler|registry|launchagent|xdg|systemd|off] offers methods for this OS\nprobe --connection PREFIX --model MODEL --api-format anthropic|openai [--endpoint PATH] [--credential-env NAME --credential-header authorization|x-api-key --credential-prefix PREFIX]');
+      console.log('npx corp-gate <start|stop|restart|status|open|doctor|probe|setup|init|restore|autostart|mcp-bridge> [--port N] [--data-dir PATH] [--db PATH]\nsetup [--client codex|claude|cursor] prints instructions only\ninit [--yes|-y] [--dry-run] [--json] [--cwd PATH] discovers and switches existing client BASE_URLs\nrestore [--json] restores backed-up client configurations from init-manifest.json\nautostart [shortcut|scheduler|registry|launchagent|xdg|systemd|off] offers methods for this OS\nprobe --connection PREFIX --model MODEL --api-format anthropic|openai [--endpoint PATH] [--credential-env NAME --credential-header authorization|x-api-key --credential-prefix PREFIX]');
       return;
     }
     if (args.command === 'setup') { new SetupCommand().run(args); return; }
+    if (args.command === 'init') { await new InitCommand(args.settings).run(args); return; }
+    if (args.command === 'restore') { await new InitCommand(args.settings).restore(args); return; }
     if (args.command === 'autostart') { await new AutostartCommand(args.settings).run(args.selection); return; }
     if (args.command === 'doctor') { const result = await new RuntimeDiagnostics(args.settings).doctor(); console.log(JSON.stringify(result)); if (!result.ok) process.exitCode = 1; return; }
     if (args.command === 'probe') {

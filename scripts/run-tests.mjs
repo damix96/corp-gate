@@ -9,7 +9,7 @@ class RegressionRunner {
     'test-server', 'test-hooks', 'test-telemetry', 'test-mcp',
     'test-sqlite-patterns', 'test-gateway-regressions', 'test-protocols',
     'test-protocol-transport', 'test-protocol-streams', 'test-native-transport',
-    'test-composite-replacements', 'test-admin-regressions', 'test-response-change-evidence', 'test-env-file-masking', 'test-vault-hardening', 'test-route-proxy',
+    'test-composite-replacements', 'test-admin-regressions', 'test-response-change-evidence', 'test-env-file-masking', 'test-vault-hardening', 'test-route-proxy', 'setup/test-init',
   ];
 
   compileTests = () => {
@@ -32,7 +32,7 @@ class RegressionRunner {
     if (args[0] === '--build-only') return;
     const names = args.length ? args : this.defaults;
     const tests = names.map(name => {
-      if (!/^test-[a-z0-9-]+$/.test(name)) throw new Error('Invalid test name: ' + name);
+      if (!/^(?:[a-z0-9-]+\/)*test-[a-z0-9-]+$/.test(name)) throw new Error('Invalid test name: ' + name);
       const entry = path.join(this.root, '.cache/test-dist/tests', name + '.js');
       if (!existsSync(entry)) throw new Error('Missing compiled test: ' + name);
       return { name, entry };
@@ -47,7 +47,7 @@ class RegressionRunner {
     const results = [];
     for (const { name, entry } of tests) {
       const cwd = path.join(work, name);
-      mkdirSync(cwd);
+      mkdirSync(cwd, { recursive: true });
       const started = Date.now();
       const result = spawnSync(process.execPath, [entry], { cwd, env, encoding: 'utf8', timeout: 120000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
       writeFileSync(path.join(cwd, 'stdout.log'), result.stdout || '');

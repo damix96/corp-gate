@@ -67,12 +67,14 @@ CorpGate adds a local protection layer against accidental secret leaks to cloud 
 
 Requirements: Node.js `>=22.13.0` (uses native `node:sqlite`).
 
-1. **Start the local daemon and open the dashboard:**
+1. **Start the local daemon and auto-import your existing `BASE_URL` configs:**
 
 ```sh
 npx -y corp-gate start
-npx -y corp-gate open
+npx -y corp-gate init
 ```
+
+`init` scans `env`, Claude Code (`settings.json`), OpenCode (`opencode.json`), and Codex CLI (`config.toml`) for already-overridden `BASE_URL` values, lets you pick which ones to import, saves full file backups and `~/.corpgate/RECOVERY.md` first, registers the routes in CorpGate, and rewires the selected configs (or prints a one-line shell command for env variables). Run `npx -y corp-gate restore` at any time to roll back from backups, or open the dashboard manually with `npx -y corp-gate open`.
 
 2. **Register your existing upstream `BASE_URL`:**
 

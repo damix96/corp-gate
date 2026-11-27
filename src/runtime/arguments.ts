@@ -23,6 +23,7 @@ export class RuntimeArguments {
     'data-dir': { type: 'string' }, db: { type: 'string' }, port: { type: 'string' }, force: { type: 'boolean' },
     client: { type: 'string' }, config: { type: 'string' }, 'dry-run': { type: 'boolean' }, autostart: { type: 'boolean' },
     apply: { type: 'boolean' }, target: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+    yes: { type: 'boolean', short: 'y' }, json: { type: 'boolean' }, cwd: { type: 'string' },
     'host-settings': { type: 'string' }, connection: { type: 'string' }, model: { type: 'string' }, 'api-format': { type: 'string' }, endpoint: { type: 'string' },
     'credential-env': { type: 'string' }, 'credential-header': { type: 'string' }, 'credential-prefix': { type: 'string' },
   } });
