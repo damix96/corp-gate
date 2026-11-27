@@ -21,6 +21,30 @@ CorpGate adds a local protection layer against accidental secret leaks to cloud 
 
 ## How it works
 
+**What your local CLI / tool output sends:**
+
+```json
+{
+  "url": "https://api.internal.net/v1/orders",
+  "auth": {
+    "username": "corp_service_user",
+    "password": "s3cr3t_db_password"
+  }
+}
+```
+
+**What actually reaches the cloud LLM / upstream `BASE_URL`:**
+
+```json
+{
+  "url": "$${<INTERNAL_API_URL>}/v1/orders",
+  "auth": {
+    "username": "$${<SERVICE_USER>}",
+    "password": "$${<SERVICE_PASSWORD>}"
+  }
+}
+```
+
 | Stage | Example |
 |---|---|
 | Local file or tool output | `https://api.corp.internal` and a saved API token |
