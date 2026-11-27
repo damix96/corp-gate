@@ -162,14 +162,18 @@ class InitTests {
       assert.ok(recoveryText.includes('https://litellm.corp.internal/anthropic'));
       assert.ok(recoveryText.includes('https://env-gw.corp.internal/v1'));
 
-      const readOnlyPath = path.join(root, 'readonly-settings.json');
+      const readOnlyDir = path.join(root, 'readonly-dir');
+      mkdirSync(readOnlyDir, { recursive: true });
+      const readOnlyPath = path.join(readOnlyDir, 'readonly-settings.json');
       writeFileSync(readOnlyPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://ro.corp.internal/anthropic' } }));
       chmodSync(readOnlyPath, 0o444);
+      if (process.platform !== 'win32') chmodSync(readOnlyDir, 0o555);
       const roOutcome = await applier.apply([{
         id: 'ro-1', client: 'Claude ReadOnly', sourceKind: 'json', editable: true, apiFormat: 'anthropic',
         sourceLabel: readOnlyPath, filePath: readOnlyPath, fieldPath: ['env', 'ANTHROPIC_BASE_URL'],
         currentUrl: 'https://ro.corp.internal/anthropic', suggestedPrefix: 'claude-ro',
       }]);
+      if (process.platform !== 'win32') chmodSync(readOnlyDir, 0o755);
       chmodSync(readOnlyPath, 0o600);
       assert.equal(roOutcome[0].status, 'manual');
 
