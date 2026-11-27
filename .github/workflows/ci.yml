@@ -36,9 +36,20 @@ jobs:
       - name: Run test suite (Linux with Secret Service)
         if: runner.os == 'Linux'
         run: |
+          mkdir -p "$HOME/.local/share/keyrings"
+          chmod 700 "$HOME/.local/share/keyrings"
+          printf 'Default_keyring\n' > "$HOME/.local/share/keyrings/default"
+          cat << 'EOF' > "$HOME/.local/share/keyrings/Default_keyring.keyring"
+          [keyring]
+          display-name=Default keyring
+          ctime=0
+          mtime=0
+          lock-on-idle=false
+          lock-after=false
+          EOF
+          chmod 600 "$HOME/.local/share/keyrings/Default_keyring.keyring"
           dbus-run-session -- bash -e -c '
             eval "$(gnome-keyring-daemon --start --components=secrets)"
-            printf "ci" | gnome-keyring-daemon --unlock --components=secrets
             secret-tool store --label="ci-probe" service corpgate-ci account probe <<< "ok"
             test "$(secret-tool lookup service corpgate-ci account probe)" = "ok"
             npm test
