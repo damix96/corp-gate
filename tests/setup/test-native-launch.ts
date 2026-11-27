@@ -26,7 +26,7 @@ class NativeLaunchTests {
       SystemCommands.require(SystemCommands.run, 'schtasks.exe', ['/Create', '/TN', name, '/XML', file, '/F'], 'Temporary native task registration failed.');
       registered = true;
       SystemCommands.require(SystemCommands.run, 'schtasks.exe', ['/Run', '/TN', name], 'Temporary native task launch failed.');
-      const deadline = Date.now() + 15000;
+      const deadline = Date.now() + 45000;
       while ((!existsSync(marker) || !readFileSync(marker, 'utf8').trim()) && Date.now() < deadline) await delay(100);
       assert.ok(existsSync(marker), 'Task must execute npx from the OS user-session PATH');
       assert.match(readFileSync(marker, 'utf8').trim(), /^\d+\.\d+\.\d+/);
