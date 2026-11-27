@@ -11,6 +11,14 @@ CorpGate adds a local protection layer against accidental secret leaks to cloud 
 
 **AI stopped replying after setup or reboot? Start with [Recovery](docs/recovery.md).**
 
+## Use cases
+
+- **Testing internal services behind corporate DLP filters:** Corporate security policies and gateways often block requests containing internal domains (`*.internal.net`), private IPs, or tokens, tying the AI agent's hands when debugging or testing internal APIs. CorpGate substitutes those values before traffic leaves your machine, letting your CLI agent freely call and test internal services without ever knowing the real addresses or credentials.
+- **Analyzing production logs, stack traces, and configs:** Feed real logs and service configs into cloud LLMs without manual redaction. Even when credentials or JWTs are buried inside triple JSON escaping, URL-encoding, or Base64, CorpGate masks them while preserving structure and diagnostic context.
+- **Working with `.env` files and local credentials without manual scrubbing:** Let your coding agent read project configs and run `curl`, database, or CLI commands with real working variables without exposing them in cloud prompt history.
+- **Passing new secrets to an agent outside chat history (MCP):** Instead of pasting passwords or tokens into a chat prompt, the agent opens a local browser form so you enter the value directly into the local Vault while the agent only sees the variable name.
+- **Mixed corporate networking (direct internal + proxied external):** Route internal gateways (such as corporate LiteLLM) directly (`direct`), while routing external providers through your system proxy or a custom corporate proxy with full `NO_PROXY` support, configured per connection.
+
 ## How it works
 
 | Stage | Example |
@@ -23,7 +31,8 @@ CorpGate adds a local protection layer against accidental secret leaks to cloud 
 - **Controlled analysis of production artifacts:** Send raw production logs, stack traces, and service configs to cloud LLMs without manual redaction. Even when credentials appear inside triple JSON escaping, URL-encoding, or Base64, CorpGate masks them at the proxy boundary while keeping JSON structure and diagnostic context intact.
 - **Zero-knowledge symbolic variables:** Instead of destructive masks (`***` or `[REDACTED]`) that break URL parsers and CLI commands, CorpGate emits DLP-neutral `$${<NAME>}` tokens (`[A-Z0-9_]+`) that preserve prompt caching prefixes and round-trip cleanly across tool calls.
 - **Full protocol coverage:** Recursive JSON string traversal across requests and responses without unmasked JSON passthrough, plus streaming restoration for OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini, and the Antigravity wrapper.
-- **Linear-time auto-detection:** Starter rules on `re2js` ($O(N)$, ReDoS-safe) catch RFC1918 private IPs, API keys/tokens, database URIs, internal URLs, and `ENV`-style assignments (`AUTO_ENV_<NAME>`), and you can add custom domains and regexes.
+- **Linear-time auto-detection:** Starter rules on `re2js` ($O(N)$, ReDoS-safe) catch RFC1918 private IPs, API keys/tokens (including JWTs), database URIs, internal URLs, and `ENV`-style assignments (`AUTO_ENV_<NAME>`), and you can add custom domains and regexes.
+- **Per-connection proxy routing:** Choose `Direct`, `System proxy` (pre-filled with live `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` values), or `Custom proxy` independently for each connection.
 
 ![CorpGate dashboard showing replacement occurrences and variables](docs/assets/dashboard.png)
 

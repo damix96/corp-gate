@@ -47,23 +47,38 @@
     "prepack": "npm run build"
   },
   "keywords": [
-    "ai-agents",
-    "secrets-management",
-    "api-keys",
-    "passwords",
     "llm-proxy",
-    "secret-masking",
-    "mcp",
-    "local-vault",
+    "ai-gateway",
+    "llm-security",
+    "secret-redaction",
+    "data-masking",
+    "llm-dlp",
+    "secrets-management",
+    "devsecops",
+    "enterprise-ai",
+    "reverse-proxy",
+    "mcp-server",
+    "coding-agent",
     "claude-code",
+    "codex-cli",
     "cursor",
-    "codex"
+    "opencode",
+    "litellm",
+    "anthropic",
+    "openai",
+    "gemini",
+    "prompt-redaction",
+    "env-protection",
+    "hide-secrets-from-llm",
+    "corporate-proxy",
+    "base-url",
+    "local-vault"
   ],
   "author": "damix96",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/damix96/corp-gate.git"
+    "url": "git+https://github.com/damix96/corp-gate.git"
   },
   "homepage": "https://github.com/damix96/corp-gate#readme",
   "bugs": {
