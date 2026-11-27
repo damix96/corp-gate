@@ -134,6 +134,43 @@ class VaultHardeningTests {
     db.close();
   };
 
+  private testJwtAndEnvOrderAndCodeExclusions = (): void => {
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const plainDb = new VaultDatabase(':memory:'), plainEngine = new PatternEngine(plainDb), plainVault = new VaultStore(plainDb);
+    const codeSamples = ['API_KEY = config.apiKey', 'DB_PASSWORD = getPassword()', 'AUTH_TOKEN = os.environ["KEY"]', 'SECRET_KEY = process.env.SECRET_KEY', 'API_KEY = os.getenv("KEY")', 'AUTH_TOKEN = settings.token', 'DB_PASSWORD = this.password', 'API_KEY = self.apiKey', 'SECRET_KEY = env.secretKey', 'AUTH_TOKEN = req.authToken', 'API_KEY = res.localsKey'];
+    const plainSample = `Token is ${jwt}\n${codeSamples.join('\n')}`;
+    plainEngine.scanAndAutoDetect(plainSample, (match, type, prefix) => plainVault.registerAutoDetectedSecret(match, type, prefix));
+    const plainMasked = plainVault.maskOutboundText(plainSample);
+    assert.equal(plainMasked.includes(jwt), false);
+    assert.match(plainMasked, /^Token is \$\$\{<AUTO_TOKEN_[A-Z0-9]+>\}/);
+    for (const line of codeSamples) assert.ok(plainMasked.includes(line), 'Expected code expression unmasked: ' + line);
+    assert.equal(plainVault.unmaskInboundText(plainMasked), plainSample);
+    plainDb.close();
+    for (const envFirst of [false, true]) {
+      const db = new VaultDatabase(':memory:'), engine = new PatternEngine(db), vault = new VaultStore(db);
+      const apiRule = db.getPatterns().find(p => p.id === 'pat_api_keys')!, envRule = db.getPatterns().find(p => p.id === 'pat_env_like')!;
+      db.upsertPattern({ ...apiRule, created_at: envFirst ? '2020-01-02T00:00:00.000Z' : '2020-01-01T00:00:00.000Z' });
+      db.upsertPattern({ ...envRule, created_at: envFirst ? '2020-01-01T00:00:00.000Z' : '2020-01-02T00:00:00.000Z' });
+      assert.equal(engine.getPatterns().map(p => p.id).indexOf('pat_env_like') < engine.getPatterns().map(p => p.id).indexOf('pat_api_keys'), envFirst);
+      const envJwt = `AUTH_TOKEN=${jwt}\nSPACED_TOKEN = ${jwt}`;
+      engine.scanAndAutoDetect(envJwt, (match, type, prefix) => vault.registerAutoDetectedSecret(match, type, prefix));
+      assert.equal(vault.getAutoSecrets().length, 1);
+      const masked = vault.maskOutboundText(envJwt);
+      assert.equal(masked.includes(jwt), false);
+      assert.match(masked, /^AUTH_TOKEN=\$\$\{<AUTO_(?:ENV_AUTH_)?TOKEN_[A-Z0-9]+>\}\nSPACED_TOKEN = \$\$\{<AUTO_(?:ENV_AUTH_)?TOKEN_[A-Z0-9]+>\}$/);
+      assert.equal((masked.match(/\$\$\{/g) || []).length, 2);
+      assert.equal(vault.unmaskInboundText(masked), envJwt);
+      db.close();
+    }
+    const migratedDb = new VaultDatabase(':memory:');
+    migratedDb.upsertPattern({ id: 'pat_api_keys', name: 'api-keys', pattern: '(?:\\bAKIA[0-9A-Z]{16}\\b)', type: 'token', enabled: 1, created_at: '2020-01-01T00:00:00Z' });
+    migratedDb.setSetting('rule_api_keys_jwt_v1', '');
+    const hits: string[] = [];
+    new PatternEngine(migratedDb).scanAndAutoDetect(jwt, match => hits.push(match));
+    assert.deepEqual(hits, [jwt]);
+    migratedDb.close();
+  };
+
   private testAnyIpRfc1918AndMigration = (): void => {
     const file = join(this.dir, 'ip-migration.db');
     let db = new VaultDatabase(file);
@@ -266,7 +303,7 @@ class VaultHardeningTests {
     try {
       this.testToggleMaskEncrypted(); this.testDefaultIsSecret(); this.testAutoSecretsSqliteTtl();
       await this.testAutoSecretsProtectedStorageAndApi();
-      this.testRe2jsLinearAndValidation(); this.testEnvLikeAndNoMatryoshka(); this.testAnyIpRfc1918AndMigration();
+      this.testRe2jsLinearAndValidation(); this.testEnvLikeAndNoMatryoshka(); this.testJwtAndEnvOrderAndCodeExclusions(); this.testAnyIpRfc1918AndMigration();
       this.testDefaultPatternsPrecisionAndDedup(); this.testPatternCacheAndDedupMigration();
       console.log('PASS vault hardening: toggleSecretMask persistence, isSecret default, auto-secrets 10d TTL, auto-secrets encryption & API redaction, re2js linear/validation, ENV-like no-matryoshka, RFC1918-only IP rule, pattern precision/dedup/cache');
     } finally { rmSync(this.dir, { recursive: true, force: true }); }

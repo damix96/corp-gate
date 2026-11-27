@@ -29,14 +29,15 @@ endpoint.register();
 const origin = await proxy.listen();
 const client = new Client({ name: 'notice-client', version: 'test' });
 const reconnected = new Client({ name: 'notice-reconnected', version: 'test' });
-const post = async (route: string, body: unknown, token?: string) => {
-  const response = await fetch(origin + '/api/secret-input' + route, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: 'Intake ' + token } : {}) }, body: JSON.stringify(body) });
+const post = async (route: string, body: unknown, token?: string, scheme: 'Intake' | 'Bearer' = 'Intake') => {
+  const response = await fetch(origin + '/api/secret-input' + route, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: scheme + ' ' + token } : {}) }, body: JSON.stringify(body) });
   assert.equal(response.status, 200);
   return await response.json() as any;
 };
 try {
   await client.connect(new StreamableHTTPClientTransport(new URL('/mcp', origin), { requestInit: { headers: { authorization: 'Bearer synthetic-notice-token' } } }));
-  const session = await post('/session', {});
+  assert.equal((await fetch(origin + '/api/secret-input/session', { method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-corpgate-input': '1' }, body: '{}' })).status, 401);
+  const session = await post('/session', {}, proxy.getAdminToken(), 'Bearer');
   const request = await post('/requests', { operation: 'set', names: ['NOTICE_KEY'], idempotencyKey: randomUUID() }, session.formToken);
   const submit = { submissionId: randomUUID(), values: [{ name: 'NOTICE_KEY', value: 'synthetic-committed-protected-value' }] };
   const result = await post('/requests/' + request.requestId + '/submit', submit, session.formToken);

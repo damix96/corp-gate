@@ -2,9 +2,12 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 
 interface FormGrant { expiresAt: number; requestId?: string; idempotencyKey?: string }
+interface PageGrant { expiresAt: number; requestId: string }
 
 export class SecretInputAccess {
+  private static pageCookieName = 'cg_intake';
   private grants = new Map<string, FormGrant>();
+  private pageGrants = new Map<string, PageGrant>();
   constructor(private now = Date.now) {}
 
   public allowed = (request: FastifyRequest): boolean => {
@@ -38,5 +41,24 @@ export class SecretInputAccess {
     return grant && grant.expiresAt > this.now() && (!requestId || grant.requestId === requestId) ? grant : undefined;
   };
 
-  public clear = (): void => this.grants.clear();
+  public issuePageGrant = (requestId: string): { token: string; cookie: string } => {
+    for (const [token, grant] of this.pageGrants) if (grant.expiresAt <= this.now()) this.pageGrants.delete(token);
+    if (this.pageGrants.size >= 128) throw Object.assign(new Error('Too many input forms'), { code: 'INPUT_BUSY' });
+    const token = randomBytes(32).toString('base64url');
+    this.pageGrants.set(token, { expiresAt: this.now() + 600_000, requestId });
+    return { token, cookie: `${SecretInputAccess.pageCookieName}=${token}; HttpOnly; SameSite=Strict; Path=/api/secret-input/session; Max-Age=600` };
+  };
+
+  public authorizePage = (cookieHeader: string | undefined, requestId?: string): string | undefined => {
+    if (!cookieHeader) return undefined;
+    for (const part of cookieHeader.split(';')) {
+      const index = part.indexOf('=');
+      if (index < 0 || part.slice(0, index).trim() !== SecretInputAccess.pageCookieName) continue;
+      const grant = this.pageGrants.get(part.slice(index + 1).trim());
+      if (grant && grant.expiresAt > this.now() && (!requestId || grant.requestId === requestId)) return grant.requestId;
+    }
+    return undefined;
+  };
+
+  public clear = (): void => { this.grants.clear(); this.pageGrants.clear(); };
 }

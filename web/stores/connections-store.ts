@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { notifications } from '@mantine/notifications';
 import { apiClient } from './api-client.js';
 import { localeStore } from './locale-store.js';
-import type { RouteRecord, WorkspaceState } from './types.js';
+import type { RouteProxyConfig, RouteRecord, SystemProxyConfig, WorkspaceState } from './types.js';
 
 export interface ConnectionsSnapshot {
   routes: RouteRecord[];
@@ -81,8 +81,13 @@ export class ConnectionsStore {
     await apiClient.saveWorkspace(this.workspace).catch(() => {});
   };
 
-  public createRoute = async (payload: { name: string; prefix: string; upstreamUrl: string; suffix?: string }): Promise<RouteRecord> => {
-    const created = await apiClient.createRoute({ suffix: '', ...payload });
+  public fetchSystemProxy = async (): Promise<SystemProxyConfig> => {
+    const res = await apiClient.request<Partial<SystemProxyConfig>>('/api/system-proxy');
+    return { httpProxy: res.httpProxy ?? '', httpsProxy: res.httpsProxy ?? '', noProxy: res.noProxy ?? '' };
+  };
+
+  public createRoute = async (payload: { name: string; prefix: string; upstreamUrl: string; suffix?: string } & RouteProxyConfig): Promise<RouteRecord> => {
+    const created = await apiClient.request<RouteRecord>('/api/routes', { method: 'POST', body: JSON.stringify({ suffix: '', ...payload }) });
     this.routes.push(created);
     if (!this.workspace.visible.includes(created.id)) this.workspace.visible.push(created.id);
     this.workspace.selected = created.id;
@@ -92,8 +97,8 @@ export class ConnectionsStore {
     return created;
   };
 
-  public updateRoute = async (id: string, upstreamUrl: string, name?: string, suffix?: string): Promise<RouteRecord> => {
-    const updated = await apiClient.updateRoute(id, upstreamUrl, name, suffix);
+  public updateRoute = async (id: string, upstreamUrl: string, name?: string, suffix?: string, proxy?: RouteProxyConfig): Promise<RouteRecord> => {
+    const updated = await apiClient.request<RouteRecord>(`/api/routes/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ upstreamUrl, name, suffix, ...proxy }) });
     this.routes = this.routes.map(r => r.id === id ? updated : r);
     this.emit();
     notifications.show({ message: localeStore.t('toasts.connectionSaved'), color: 'teal' });

@@ -6,6 +6,7 @@ import { useLocale } from '../../stores/locale-store.js';
 import { connectionsStore, useConnections } from '../../stores/connections-store.js';
 import type { RouteRecord } from '../../stores/types.js';
 import { ConnectionInstructionsModal, getInstructionKind } from './connection-instructions-modal.js';
+import { ConnectionProxySection, toProxyPayload, useConnectionProxyState, type ProxyFormState } from './connection-proxy-section.js';
 
 export { ConnectionInstructionsModal, getInstructionKind };
 
@@ -17,7 +18,7 @@ const PRESETS = [
   { id: 'ollama', name: 'Ollama', url: 'http://127.0.0.1:11434/v1' },
 ];
 const RESERVED = new Set(['api', 'health', 'dashboard', 'zen']);
-const settingsDrafts = new Map<string, { target: string; name: string }>();
+const settingsDrafts = new Map<string, { target: string; name: string } & ProxyFormState>();
 
 const slugify = (text: string) => text.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -49,6 +50,7 @@ export const ConnectionCreateModal = ({ opened, onClose }: { opened: boolean; on
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { proxy, proxyLoading, proxyError, resetProxy, setProxyMode, setProxyField } = useConnectionProxyState();
 
   const existingPrefixes = new Set(conn.routes.map(r => r.prefix));
 
@@ -73,11 +75,12 @@ export const ConnectionCreateModal = ({ opened, onClose }: { opened: boolean; on
     const finalPrefix = resolvePrefix(finalName, existingPrefixes);
     setSaving(true);
     try {
-      await connectionsStore.createRoute({ name: finalName, upstreamUrl: url.trim(), prefix: finalPrefix });
+      await connectionsStore.createRoute({ name: finalName, upstreamUrl: url.trim(), prefix: finalPrefix, ...toProxyPayload(proxy) });
       setName('');
       setUrl('');
       setError(null);
       setNameError(null);
+      resetProxy();
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -99,6 +102,7 @@ export const ConnectionCreateModal = ({ opened, onClose }: { opened: boolean; on
         </Stack>
         <TextInput label={t('ruleEditor.nameLabel')} placeholder="opencode" value={name} onChange={e => { setName(e.currentTarget.value); setNameError(null); }} error={nameError} required />
         <TextInput label={t('connections.urlLabel')} placeholder={t('connections.urlPlaceholder')} description={t('connections.urlDesc')} value={url} onChange={e => { setUrl(e.currentTarget.value); setError(null); }} error={error} required />
+        <ConnectionProxySection value={proxy} loading={proxyLoading} error={proxyError} onModeChange={setProxyMode} onFieldChange={setProxyField} />
         <Group justify="flex-end" gap="xs">
           <Button variant="default" onClick={onClose}>{t('common.close')}</Button>
           <Button onClick={handleSave} loading={saving}>{t('common.add')}</Button>
@@ -114,6 +118,7 @@ export const ConnectionSettingsModal = ({ route, opened, onClose }: { route: Rou
   const [url, setUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { proxy, proxyLoading, proxyError, resetProxy, setProxyMode, setProxyField } = useConnectionProxyState();
   const scrollPos = useRef({ x: 0, y: 0 });
   const conversationScroll = useRef(0);
   const sessionsScroll = useRef(0);
@@ -123,17 +128,20 @@ export const ConnectionSettingsModal = ({ route, opened, onClose }: { route: Rou
       const draft = settingsDrafts.get(route.id);
       setName(draft?.name ?? route.name ?? '');
       setUrl(draft?.target ?? route.upstreamUrl ?? '');
+      resetProxy(draft
+        ? { proxyMode: draft.proxyMode, httpProxy: draft.httpProxy, httpsProxy: draft.httpsProxy, noProxy: draft.noProxy }
+        : { proxyMode: route.proxyMode ?? 'direct', httpProxy: route.httpProxy ?? '', httpsProxy: route.httpsProxy ?? '', noProxy: route.noProxy ?? '' });
       setError(null);
       scrollPos.current = { x: window.scrollX, y: window.scrollY };
       conversationScroll.current = document.getElementById('overviewConversation')?.scrollTop ?? 0;
       sessionsScroll.current = document.getElementById('overviewSessions')?.scrollTop ?? 0;
     }
-  }, [opened, route?.id, route?.name, route?.upstreamUrl]);
+  }, [opened, route?.id, route?.name, route?.upstreamUrl, route?.proxyMode, route?.httpProxy, route?.httpsProxy, route?.noProxy, resetProxy]);
 
   if (!route) return null;
 
   const handleClose = () => {
-    settingsDrafts.set(route.id, { target: url, name });
+    settingsDrafts.set(route.id, { target: url, name, ...proxy });
     onClose();
     requestAnimationFrame(() => {
       window.scrollTo(scrollPos.current.x, scrollPos.current.y);
@@ -152,7 +160,7 @@ export const ConnectionSettingsModal = ({ route, opened, onClose }: { route: Rou
     }
     setSaving(true);
     try {
-      await connectionsStore.updateRoute(route.id, url.trim(), name.trim());
+      await connectionsStore.updateRoute(route.id, url.trim(), name.trim(), undefined, toProxyPayload(proxy));
       settingsDrafts.delete(route.id);
       onClose();
       requestAnimationFrame(() => {
@@ -195,6 +203,7 @@ export const ConnectionSettingsModal = ({ route, opened, onClose }: { route: Rou
         )}
         <TextInput label={t('connections.settingsNameLabel')} description={t('connections.settingsNameDesc')} value={name} onChange={e => setName(e.currentTarget.value)} />
         <TextInput label={t('connections.urlLabel')} description={t('connections.urlDesc')} value={url} onChange={e => setUrl(e.currentTarget.value)} required />
+        <ConnectionProxySection value={proxy} loading={proxyLoading} error={proxyError} onModeChange={setProxyMode} onFieldChange={setProxyField} />
         <Group justify="space-between">
           {route.isCustom ? (
             <Button color="red" variant="subtle" size="xs" leftSection={<Trash2 size={14} />} onClick={confirmDelete}>{t('connections.deleteConnection')}</Button>

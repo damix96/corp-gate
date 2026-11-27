@@ -27,6 +27,7 @@ import { RuntimeActivity } from '../runtime/activity.js';
 import { SecretInputPages } from '../secret-input/pages.js';
 import { SecretInputEndpoint } from '../secret-input/endpoint.js';
 import { SecretInputManager } from '../secret-input/manager.js';
+import { SecretInputAccess } from '../secret-input/access.js';
 import { VaultSecretInputStorage } from '../secret-input/storage.js';
 import { SecretInputBrowser } from '../secret-input/browser-launcher.js';
 import { ProtectedEvents } from '../secret-input/protected-events.js';
@@ -65,12 +66,14 @@ export class CorpGateProxyServer {
     this.hookManager = hookManager ?? new HookManager();
     this.config = { port: 8767, host: '127.0.0.1', targetApiBase: 'https://api.anthropic.com', confirmationMode: 'auto', storagePath: '', maxBufferWindowChars: 64, ...config };
     this.app = Fastify({ logger: false, bodyLimit: Number.MAX_SAFE_INTEGER });
-    this.adminAccess = new AdminAccess(this.config.host, this.config.adminToken);
-    new SecretInputEndpoint(this.app, new SecretInputManager(new VaultSecretInputStorage(this.vault), inputBrowser, Date.now, this.adminAccess.getAdminToken())).register();
+    const inputAccess = new SecretInputAccess();
+    this.adminAccess = new AdminAccess(this.config.host, this.config.adminToken, { hasIntakeGrant: req => Boolean(inputAccess.authorize(req.headers.authorization)), hasPageGrant: req => Boolean(inputAccess.authorizePage(req.headers.cookie)) });
+    const inputManager = new SecretInputManager(new VaultSecretInputStorage(this.vault), inputBrowser, Date.now, this.adminAccess.getAdminToken());
+    new SecretInputEndpoint(this.app, inputManager, inputAccess, req => this.adminAccess.isAuthorized(req)).register();
     this.adminAccess.install(this.app);
     this.app.register(cors, { delegator: this.adminAccess.cors });
     this.app.register(fastifyStatic, { root: publicPath, prefix: '/', wildcard: false, index: false });
-    new SecretInputPages(this.app).register();
+    new SecretInputPages(this.app, inputManager, inputAccess).register();
     this.dashboardApi = new DashboardApi(
       this.app, this.vault, this.patternEngine, this.hookManager, this.eventBroadcaster,
       () => this.startTime, this.getLastCall, this.getLastTransactionContext,
@@ -107,7 +110,7 @@ export class CorpGateProxyServer {
   public drain = async (timeoutMs = 5000): Promise<void> => this.activity.drain(timeoutMs);
   public abortRequests = (): void => this.activity.abort();
   public closeSecretInput = (): Promise<void> => this.app.hasDecorator('secretInputEndpoint') ? this.app.getDecorator<SecretInputEndpoint>('secretInputEndpoint').close() : Promise.resolve();
-  public close = async (): Promise<void> => { this.activity.stopAdmission(); this.eventBroadcaster.close(); await Promise.all([this.closeSecretInput(), this.activity.drain()]); await this.app.close(); this.runtime.clear(); };
+  public close = async (): Promise<void> => { this.activity.stopAdmission(); this.eventBroadcaster.close(); await Promise.all([this.closeSecretInput(), this.activity.drain(), this.upstreamClient.close()]); await this.app.close(); this.runtime.clear(); };
   public clearTransactionHistory = (sessionId?: string): void => {
     this.runtime.clear(sessionId);
     if (sessionId === undefined) this.eventBroadcaster.broadcast({ id: crypto.randomUUID(), type: 'sessions_cleared', timestamp: new Date().toISOString(), client: '', details: {} });
@@ -204,6 +207,9 @@ export class CorpGateProxyServer {
     record({ id: txId, sessionId, timestamp: started, request: reqCtx, maskedPrompt: maskedBody, interceptedSecrets });
     const upstream = this.getUpstreamSettings();
     const route = this.sessionResolver.resolveRoute(reqCtx.url, upstream, undefined, this.config.targetApiBase);
+    const routePath = reqCtx.url.split('?')[0];
+    const matchedRoute = upstream.routes.find(r => routePath === '/' + r.prefix || routePath.startsWith('/' + r.prefix + '/')) ?? (routePath === '/zen' || routePath.startsWith('/zen/') ? upstream.routes.find(r => r.id === 'opencode') : undefined);
+    const proxy = matchedRoute ? { proxyMode: matchedRoute.proxy_mode ?? 'direct', httpProxy: matchedRoute.http_proxy ?? '', httpsProxy: matchedRoute.https_proxy ?? '', noProxy: matchedRoute.no_proxy ?? '' } : undefined;
     reqCtx.url = route.forwardPath;
     const targetUrl = route.targetUrl;
     const targetProvider = route.targetProvider;
@@ -211,7 +217,7 @@ export class CorpGateProxyServer {
 
     let upstreamRes: Response;
     try {
-      upstreamRes = await this.upstreamClient.fetch(targetUrl, { method: reqCtx.method, headers: reqCtx.headers, body: hasBody ? maskedBody : undefined, signal });
+      upstreamRes = await this.upstreamClient.fetch(targetUrl, { method: reqCtx.method, headers: reqCtx.headers, body: hasBody ? maskedBody : undefined, signal, proxy });
     } catch (err: any) {
       responseEvidence.finish('not-processed');
       const errCtx: ResponseContext = { status: reply.raw.destroyed ? 499 : 502, headers: {}, body: String(err?.message || err), isStream: false, client: clientName };

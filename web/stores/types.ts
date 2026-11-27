@@ -69,6 +69,21 @@ export interface PreviewResponse {
   scanned: number;
 }
 
+export type ProxyMode = 'direct' | 'system' | 'custom';
+
+export interface SystemProxyConfig {
+  httpProxy: string;
+  httpsProxy: string;
+  noProxy: string;
+}
+
+export interface RouteProxyConfig {
+  proxyMode?: ProxyMode;
+  httpProxy?: string;
+  httpsProxy?: string;
+  noProxy?: string;
+}
+
 export interface RouteRecord {
   id: string;
   name: string;
@@ -80,6 +95,10 @@ export interface RouteRecord {
   suffix?: string;
   isCustom?: boolean;
   instructionKind?: string;
+  proxyMode?: ProxyMode;
+  httpProxy?: string;
+  httpsProxy?: string;
+  noProxy?: string;
 }
 
 export interface WorkspaceState {

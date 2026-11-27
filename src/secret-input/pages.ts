@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { SecretInputAccess } from './access.js';
+import { SecretInputManager } from './manager.js';
 
 export class SecretInputPages {
-  private access = new SecretInputAccess();
-  constructor(private app: FastifyInstance) {}
+  constructor(private app: FastifyInstance, private manager?: SecretInputManager, private access = new SecretInputAccess()) {}
 
   public register = (): void => {
     for (const url of ['/vault/set', '/vault/set/:id']) this.app.get(url, { logLevel: 'silent', exposeHeadRoute: false }, this.show);
@@ -21,6 +21,16 @@ export class SecretInputPages {
 
   private show = async (request: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     if (!this.admit(request, reply)) return;
+    const paramsId = (request.params as { id?: string }).id;
+    const source = new URL(request.url, 'http://localhost');
+    const queryId = source.searchParams.get('request') ?? source.searchParams.get('requestId');
+    const targetId = paramsId || (queryId && /^[a-zA-Z0-9_-]{4,36}$/.test(queryId) ? queryId : undefined);
+    if (targetId && this.manager) {
+      try {
+        const view = this.manager.status(targetId);
+        if (view.state === 'awaiting_input') reply.header('set-cookie', this.access.issuePageGrant(view.requestId).cookie);
+      } catch {}
+    }
     return reply.sendFile('index.html', { cacheControl: false, etag: false, lastModified: false });
   };
 

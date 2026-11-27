@@ -110,9 +110,18 @@ export class VaultDatabase {
         prefix TEXT UNIQUE,
         upstream_url TEXT,
         description TEXT,
-        is_custom INTEGER DEFAULT 0
+        is_custom INTEGER DEFAULT 0,
+        proxy_mode TEXT NOT NULL DEFAULT 'direct',
+        http_proxy TEXT NOT NULL DEFAULT '',
+        https_proxy TEXT NOT NULL DEFAULT '',
+        no_proxy TEXT NOT NULL DEFAULT ''
       );
     `);
+    const routeCols = new Set((this.db.prepare('PRAGMA table_info(routes)').all() as Array<{ name: string }>).map(row => row.name));
+    if (!routeCols.has('proxy_mode')) this.db.exec("ALTER TABLE routes ADD COLUMN proxy_mode TEXT NOT NULL DEFAULT 'direct';");
+    if (!routeCols.has('http_proxy')) this.db.exec("ALTER TABLE routes ADD COLUMN http_proxy TEXT NOT NULL DEFAULT '';");
+    if (!routeCols.has('https_proxy')) this.db.exec("ALTER TABLE routes ADD COLUMN https_proxy TEXT NOT NULL DEFAULT '';");
+    if (!routeCols.has('no_proxy')) this.db.exec("ALTER TABLE routes ADD COLUMN no_proxy TEXT NOT NULL DEFAULT '';");
     try {
       this.db.exec('ALTER TABLE transactions ADD COLUMN target_provider TEXT;');
     } catch {}
@@ -230,8 +239,8 @@ export class VaultDatabase {
 
   public upsertRoute = (route: RouteRow): void => {
     this.db.prepare(
-      'INSERT OR REPLACE INTO routes (id, name, prefix, upstream_url, description, is_custom) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(route.id, route.name, route.prefix, route.upstream_url, route.description, route.is_custom);
+      'INSERT OR REPLACE INTO routes (id, name, prefix, upstream_url, description, is_custom, proxy_mode, http_proxy, https_proxy, no_proxy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(route.id, route.name, route.prefix, route.upstream_url, route.description, route.is_custom, route.proxy_mode ?? 'direct', route.http_proxy ?? '', route.https_proxy ?? '', route.no_proxy ?? '');
   };
 
   public deleteRoute = (id: string): boolean =>

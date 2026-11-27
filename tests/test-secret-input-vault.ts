@@ -39,8 +39,8 @@ class SecretInputVaultTests {
     this.endpoint.register();
   }
 
-  private post = async (route: string, body: unknown, token?: string) => {
-    const response = await fetch(this.address + route, { method: 'POST', headers: { origin: this.address, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: 'Intake ' + token } : {}) }, body: JSON.stringify(body) });
+  private post = async (route: string, body: unknown, token?: string, scheme: 'Intake' | 'Bearer' = 'Intake', cookie?: string) => {
+    const response = await fetch(this.address + route, { method: 'POST', headers: { origin: this.address, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: scheme + ' ' + token } : {}), ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
     const data = await response.json() as any;
     return { status: response.status, data };
   };
@@ -53,8 +53,17 @@ class SecretInputVaultTests {
     const result = await this.call(0, 'corpgate_request_secret_input', { operation, names, idempotencyKey: randomUUID() });
     assert.equal(result.isError, undefined);
     const view = result.structuredContent as SecretInputView;
-    const session = await this.post('/api/secret-input/session', { requestId: view.requestId });
+    assert.equal((await this.post('/api/secret-input/session', {})).status, 401);
+    assert.equal((await this.post('/api/secret-input/session', { requestId: view.requestId })).status, 401);
+    assert.equal((await this.post('/api/secret-input/requests', { operation, names, idempotencyKey: randomUUID() })).status, 401);
+    assert.equal((await fetch(this.address + '/api/secret-input/requests/' + view.requestId)).status, 401);
+    const page = await fetch(view.url);
+    assert.equal(page.status, 200);
+    const cookie = String(page.headers.get('set-cookie') || '').split(';')[0];
+    assert.match(cookie, /^cg_intake=/);
+    const session = await this.post('/api/secret-input/session', { requestId: view.requestId }, undefined, 'Intake', cookie);
     assert.equal(session.status, 200);
+    assert.equal(Object.hasOwn(session.data, 'existingNames'), false);
     return { id: view.requestId, token: session.data.formToken as string };
   };
   private submit = (form: { id: string; token: string }, values: Array<{ name: string; value: string }>, submissionId = randomUUID()) => this.post('/api/secret-input/requests/' + form.id + '/submit', { submissionId, values }, form.token);
@@ -159,7 +168,9 @@ class SecretInputVaultTests {
     const unavailable = new CorpGateProxyServer(new VaultStore(unavailableDb), { host: '127.0.0.1', port: 0 });
     try {
       this.address = await unavailable.listen();
-      const session = await this.post('/api/secret-input/session', {});
+      assert.equal((await this.post('/api/secret-input/session', {})).status, 401);
+      const session = await this.post('/api/secret-input/session', {}, unavailable.getAdminToken(), 'Bearer');
+      assert.equal(session.status, 200);
       const created = await this.post('/api/secret-input/requests', { operation: 'set', names: ['UNAVAILABLE'], idempotencyKey: randomUUID() }, session.data.formToken);
       const failed = await this.submit({ id: created.data.requestId, token: session.data.formToken }, [{ name: 'UNAVAILABLE', value: 'synthetic-unavailable' }]);
       assert.equal(failed.status, 503);

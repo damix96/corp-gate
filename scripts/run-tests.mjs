@@ -9,7 +9,7 @@ class RegressionRunner {
     'test-server', 'test-hooks', 'test-telemetry', 'test-mcp',
     'test-sqlite-patterns', 'test-gateway-regressions', 'test-protocols',
     'test-protocol-transport', 'test-protocol-streams', 'test-native-transport',
-    'test-composite-replacements', 'test-admin-regressions', 'test-response-change-evidence', 'test-env-file-masking', 'test-vault-hardening',
+    'test-composite-replacements', 'test-admin-regressions', 'test-response-change-evidence', 'test-env-file-masking', 'test-vault-hardening', 'test-route-proxy',
   ];
 
   compileTests = () => {

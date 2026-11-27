@@ -18,8 +18,8 @@ await new Promise<void>(resolve => probe.close(() => resolve()));
 const settings = new RuntimeSettings({ dataDir: directory, port });
 let runtime = RuntimeApplication.create(settings);
 let client: Client | undefined;
-const post = async (route: string, body: unknown, token?: string) => {
-  const response = await fetch(settings.url + '/api/secret-input' + route, { method: 'POST', headers: { origin: settings.url, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: 'Intake ' + token } : {}) }, body: JSON.stringify(body) });
+const post = async (route: string, body: unknown, token?: string, scheme: 'Intake' | 'Bearer' = 'Intake') => {
+  const response = await fetch(settings.url + '/api/secret-input' + route, { method: 'POST', headers: { origin: settings.url, 'content-type': 'application/json', 'x-corpgate-input': '1', ...(token ? { authorization: scheme + ' ' + token } : {}) }, body: JSON.stringify(body) });
   const data = await response.json() as any;
   assert.equal(response.status, 200, route + ': ' + (data.error?.code || data.error || 'unexpected status'));
   return data;
@@ -31,14 +31,16 @@ const connect = async () => {
 };
 try {
   await runtime.start();
+  const adminToken = readFileSync(settings.adminTokenPath, 'utf8').trim();
+  assert.equal((await fetch(settings.url + '/api/secret-input/session', { method: 'POST', headers: { origin: settings.url, 'content-type': 'application/json', 'x-corpgate-input': '1' }, body: '{}' })).status, 401);
   assert.deepEqual(runtime.getVault().captureSecretTargets(['RUNTIME_VALUE']), [{ name: 'RUNTIME_VALUE', expectedRevision: null }]);
   client = await connect();
   assert.ok((await client.listTools()).tools.some(tool => tool.name === 'corpgate_request_secret_input'));
-  const session = await post('/session', {});
+  const session = await post('/session', {}, adminToken, 'Bearer');
   const request = await post('/requests', { operation: 'set', names: ['RUNTIME_VALUE'], idempotencyKey: randomUUID() }, session.formToken);
   const committed = await post('/requests/' + request.requestId + '/submit', { submissionId: randomUUID(), values: [{ name: 'RUNTIME_VALUE', value: 'synthetic-runtime-persisted' }] }, session.formToken);
   assert.equal(committed.state, 'completed');
-  const pendingSession = await post('/session', {});
+  const pendingSession = await post('/session', {}, adminToken, 'Bearer');
   const pending = await post('/requests', { operation: 'set', names: ['CANCEL_ON_STOP'], idempotencyKey: randomUUID() }, pendingSession.formToken);
   const manager = runtime.getServer().getSecretInput();
   await client.close();
@@ -52,6 +54,6 @@ try {
   assert.equal(old.isError, true);
   assert.equal(JSON.stringify(old).includes('REQUEST_NOT_FOUND'), true);
   const oldGrant = await fetch(settings.url + '/api/secret-input/requests/' + request.requestId, { headers: { authorization: 'Intake ' + session.formToken } });
-  assert.equal(oldGrant.status, 403);
+  assert.equal(oldGrant.status, 401);
   console.log('Production runtime retained listener/input/MCP/stop/restart/no replay PASS');
 } finally { await client?.close(); await runtime.close(); }

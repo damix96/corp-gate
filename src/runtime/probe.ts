@@ -45,7 +45,7 @@ export class RuntimeProbe {
     } finally {
       for (const target of [...(created ? ['/api/vault/secret/' + name] : []), '/api/sessions/' + session]) {
         try { await this.admin(target, undefined, 'DELETE'); }
-        catch { result.cleanup = false; result.ok = false; result.message = 'Probe cleanup could not be confirmed. Remove only the temporary GV_PROBE entry/session in the dashboard before retrying.'; }
+        catch { result.cleanup = false; result.ok = false; result.message = 'Probe cleanup could not be confirmed. Remove only the temporary CG_PROBE_ entry/session in the dashboard before retrying.'; }
       }
     }
     return result;

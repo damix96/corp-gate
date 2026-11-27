@@ -11,7 +11,7 @@ interface CompiledPattern {
 
 const INTERNAL_URLS_PATTERN = 'https?:\\/\\/[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)*\\.(?:internal|local|corp|lan|intranet)\\b(?:\\.[a-zA-Z0-9_-]+)*(?::\\d{1,5})?(?:\\/[^\\s"\'`<>\\);,]*)?';
 const DATABASE_URI_PATTERN = '(?:postgres|postgresql|mysql|mongodb|redis):\\/\\/[^\\s"\'`),;<>]+';
-const API_KEYS_PATTERN = '(?:\\bAKIA[0-9A-Z]{16}\\b|\\bgithub_pat_[a-zA-Z0-9_]{20,}|\\bglpat-[a-zA-Z0-9_-]{20,}|\\bxox[baprs]-[a-zA-Z0-9-]{10,}|\\bAIza[0-9A-Za-z_-]{30,}|\\bsk_live_[0-9a-zA-Z]{16,}|\\brk_live_[0-9a-zA-Z]{16,}|\\bsk-[a-zA-Z0-9_-]{20,}|\\bghp_[a-zA-Z0-9]{20,}|\\bbearer\\s+([a-zA-Z0-9_\\-\\.]{20,}))';
+const API_KEYS_PATTERN = '(?:\\bAKIA[0-9A-Z]{16}\\b|\\bgithub_pat_[a-zA-Z0-9_]{20,}|\\bglpat-[a-zA-Z0-9_-]{20,}|\\bxox[baprs]-[a-zA-Z0-9-]{10,}|\\bAIza[0-9A-Za-z_-]{30,}|\\bsk_live_[0-9a-zA-Z]{16,}|\\brk_live_[0-9a-zA-Z]{16,}|\\bsk-[a-zA-Z0-9_-]{20,}|\\bghp_[a-zA-Z0-9]{20,}|\\bbearer\\s+([a-zA-Z0-9_\\-\\.]{20,})|\\beyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,})';
 
 export class PatternEngine {
   private db: VaultDatabase;
@@ -22,6 +22,11 @@ export class PatternEngine {
   constructor(db: VaultDatabase) {
     this.db = db;
     this.initializeDefaultPatterns();
+    if (this.db.getSetting('rule_api_keys_jwt_v1', '') !== '1') {
+      const apiKeys = this.db.getPatterns().find(rule => rule.id === 'pat_api_keys');
+      if (apiKeys && !apiKeys.pattern.includes('eyJ')) this.db.upsertPattern({ ...apiKeys, pattern: API_KEYS_PATTERN });
+      this.db.setSetting('rule_api_keys_jwt_v1', '1');
+    }
     AnyIpRule.install(db);
     EnvLikeRule.install(db);
   }
@@ -46,6 +51,7 @@ export class PatternEngine {
     ];
     defaults.forEach(p => this.db.upsertPattern(p));
     this.db.setSetting('rule_private_ip_rfc1918_v2', '1');
+    this.db.setSetting('rule_api_keys_jwt_v1', '1');
   };
 
   public static validateRegex = (pat: string): string | null => {

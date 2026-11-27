@@ -3,9 +3,6 @@ import { z } from 'zod';
 import { VaultStore } from '../vault/store.js';
 import { VaultDatabase, SecretRow } from '../vault/sqlite-db.js';
 import { HookManager } from '../hooks/manager.js';
-import { pathToFileURL } from 'node:url';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DefaultRoutes } from '../vault/default-routes.js';
 import { RuntimeSessions } from './runtime-sessions.js';
 import { CorpGateConfig } from '../types/index.js';
@@ -30,7 +27,7 @@ export class WorkspaceApi {
 
   public register = () => {
     this.app.get('/api/workspace', async () => this.state());
-    this.app.get('/api/client-help', async () => ({ zenPlugin: pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../internal/opencode/zen-connection')).href }));
+    this.app.get('/api/client-help', async () => ({ clients: this.db.getAllRoutes().map(route => route.prefix) }));
     this.app.post('/api/workspace', async (req, reply) => {
       const parsed = z.object({ visible: z.array(z.string()).max(1000), selected: z.string() }).safeParse(req.body);
       if (!parsed.success) return reply.code(400).send({ error: 'Failed to save connection selection' });

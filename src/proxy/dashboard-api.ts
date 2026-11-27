@@ -10,7 +10,7 @@ import { TransactionRecord } from '../telemetry/types.js';
 import { CorpGateConfig, SecretEntry } from '../types/index.js';
 import { LastCallInfo } from './server.js';
 import { ResponseNormalizer } from './response-normalizer.js';
-import { RouteRegistry } from './route-registry.js';
+import { RouteRegistry, RouteProxyConfig } from './route-registry.js';
 import { DashboardDemo } from './dashboard-demo.js';
 import { SessionDialogue } from './session-dialogue.js';
 import { WorkspaceApi } from './workspace-api.js';
@@ -130,35 +130,46 @@ export class DashboardApi {
       return reply.status(200).send({ success: true, pattern: toggled });
     });
 
+    this.app.get('/api/system-proxy', async () => ({
+      httpProxy: process.env.HTTP_PROXY || process.env.http_proxy || '',
+      httpsProxy: process.env.HTTPS_PROXY || process.env.https_proxy || '',
+      noProxy: process.env.NO_PROXY || process.env.no_proxy || '',
+    }));
+
     this.app.get('/api/routes', async (req: FastifyRequest) => {
       const host = req.headers.host ? 'http://' + req.headers.host : 'http://127.0.0.1:8767';
       return this.routeRegistry.getRoutes(host);
     });
 
-    this.app.post('/api/routes', async (req: FastifyRequest<{ Body: { name?: string; prefix?: string; upstreamUrl?: string; description?: string; suffix?: string } }>, reply: FastifyReply) => {
+    this.app.post('/api/routes', async (req: FastifyRequest<{ Body: { name?: string; prefix?: string; upstreamUrl?: string; description?: string; suffix?: string } & RouteProxyConfig }>, reply: FastifyReply) => {
       const b = req.body || {};
       if (!b.name || !b.prefix || !b.upstreamUrl) return reply.status(400).send({ error: 'Name, prefix, and upstreamUrl are required' });
       try {
         const host = req.headers.host ? 'http://' + req.headers.host : 'http://127.0.0.1:8767';
-        const created = this.routeRegistry.createCustomRoute({ name: b.name, prefix: b.prefix, upstreamUrl: b.upstreamUrl, description: b.description, suffix: b.suffix }, host);
+        const created = this.routeRegistry.createCustomRoute({ name: b.name, prefix: b.prefix, upstreamUrl: b.upstreamUrl, description: b.description, suffix: b.suffix, proxyMode: b.proxyMode, httpProxy: b.httpProxy, httpsProxy: b.httpsProxy, noProxy: b.noProxy }, host);
         return reply.status(201).send(created);
       } catch (err: any) {
         return reply.status(400).send({ error: err?.message || String(err) });
       }
     });
 
-    this.app.post('/api/routes/:id', async (req: FastifyRequest<{ Params: { id: string }; Body: { upstreamUrl?: string; targetUrl?: string; name?: string; suffix?: string } }>, reply: FastifyReply) => {
-      const url = req.body?.upstreamUrl || req.body?.targetUrl;
-      if (!url) return reply.status(400).send({ error: 'upstreamUrl is required' });
+    const updateRouteHandler = async (req: FastifyRequest<{ Params: { id: string }; Body: { upstreamUrl?: string; targetUrl?: string; name?: string; suffix?: string } & RouteProxyConfig }>, reply: FastifyReply) => {
+      const b = req.body || {};
+      const url = b.upstreamUrl || b.targetUrl;
+      const hasProxyUpdate = b.proxyMode !== undefined || b.httpProxy !== undefined || b.httpsProxy !== undefined || b.noProxy !== undefined;
+      if (!url && !hasProxyUpdate && b.name === undefined && b.suffix === undefined) return reply.status(400).send({ error: 'upstreamUrl is required' });
       const host = req.headers.host ? 'http://' + req.headers.host : 'http://127.0.0.1:8767';
       try {
-        const updated = this.routeRegistry.updateRoute(req.params.id, url, host, req.body?.name, req.body?.suffix);
+        const proxy: RouteProxyConfig | undefined = hasProxyUpdate ? { proxyMode: b.proxyMode, httpProxy: b.httpProxy, httpsProxy: b.httpsProxy, noProxy: b.noProxy } : undefined;
+        const updated = this.routeRegistry.updateRoute(req.params.id, url, host, b.name, b.suffix, proxy);
         if (!updated) return reply.status(404).send({ error: 'Route not found' });
         return reply.status(200).send(updated);
       } catch (error: any) {
         return reply.status(400).send({ error: error.message });
       }
-    });
+    };
+    this.app.post('/api/routes/:id', updateRouteHandler);
+    this.app.put('/api/routes/:id', updateRouteHandler);
 
     this.app.delete('/api/routes/:id', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const deleted = this.routeRegistry.deleteRoute(req.params.id);

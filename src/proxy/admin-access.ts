@@ -1,13 +1,18 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+export interface SecretInputAuthHooks {
+  hasIntakeGrant: (request: FastifyRequest) => boolean;
+  hasPageGrant: (request: FastifyRequest) => boolean;
+}
+
 export class AdminAccess {
   private static cookieName = 'cg_session';
   private static maxAgeSeconds = 2592000;
   private sessionToken = randomBytes(32).toString('base64url');
   private adminToken: string;
 
-  constructor(private host: string, adminToken?: string) {
+  constructor(private host: string, adminToken?: string, private secretInput?: SecretInputAuthHooks) {
     this.adminToken = adminToken || randomBytes(32).toString('hex');
   }
 
@@ -40,7 +45,15 @@ export class AdminAccess {
           await reply.code(403).send({ error: 'Administrative API accepts requests from its own origin only' });
           return;
         }
-        const isPublic = pathname === '/api/health' || pathname.startsWith('/api/secret-input/') || (pathname === '/api/auth/session' && request.method === 'POST');
+        const isSecretRequest =
+          /^\/api\/secret-input\/requests\/[a-zA-Z0-9_-]{4,36}(?:\/(?:submit|cancel))?$/.test(pathname) &&
+          ((request.method === 'GET' && !pathname.endsWith('/submit') && !pathname.endsWith('/cancel')) ||
+            (request.method === 'POST' && (pathname.endsWith('/submit') || pathname.endsWith('/cancel'))));
+        const isSecretInputAuthorized =
+          (pathname === '/api/secret-input/session' && request.method === 'POST' && Boolean(this.secretInput?.hasPageGrant(request))) ||
+          (pathname === '/api/secret-input/requests' && request.method === 'POST' && Boolean(this.secretInput?.hasIntakeGrant(request))) ||
+          (isSecretRequest && Boolean(this.secretInput?.hasIntakeGrant(request)));
+        const isPublic = pathname === '/api/health' || (pathname === '/api/auth/session' && request.method === 'POST') || isSecretInputAuthorized;
         if (!isPublic && !this.isAuthorized(request)) {
           await reply.code(401).send({ error: 'Admin token or active dashboard session required' });
           return;

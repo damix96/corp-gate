@@ -10,11 +10,10 @@ const sessionSchema = z.object({ requestId: idFormat.optional(), id: idFormat.op
 const paramsSchema = z.object({ id: idFormat });
 
 export class SecretInputEndpoint {
-  private access = new SecretInputAccess();
   private closed = false;
   private closing?: Promise<void>;
   private creating = new WeakMap<object, { fingerprint: string; task: Promise<SecretInputView> }>();
-  constructor(private app: FastifyInstance, private manager: SecretInputManager) {}
+  constructor(private app: FastifyInstance, private manager: SecretInputManager, private access = new SecretInputAccess(), private isAdmin: (request: FastifyRequest) => boolean = () => true) {}
 
   public register = (): void => {
     this.app.decorate('secretInput', this.manager);
@@ -36,6 +35,10 @@ export class SecretInputEndpoint {
         const validQueryId = queryId && /^[a-zA-Z0-9_-]{4,36}$/i.test(queryId) ? queryId : undefined;
         const requestId = body.requestId ?? body.id ?? validQueryId;
         const view = requestId ? this.manager.status(requestId) : undefined;
+        if (!this.isAdmin(request)) {
+          if (!view || !this.access.authorizePage(request.headers.cookie, view.requestId)) throw new SecretInputError('INPUT_FORBIDDEN');
+          return reply.send({ ...this.access.issue(view.requestId), request: view, variables: view.variables });
+        }
         const existingNames = this.manager.listExistingNames();
         return reply.send({ ...this.access.issue(requestId), ...(view ? { request: view, variables: view.variables } : {}), existingNames });
       });

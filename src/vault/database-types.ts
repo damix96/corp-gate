@@ -60,6 +60,8 @@ export interface TransactionRow {
   target_url?: string;
 }
 
+export type ProxyMode = 'direct' | 'system' | 'custom';
+
 export interface RouteRow {
   id: string;
   name: string;
@@ -67,4 +69,8 @@ export interface RouteRow {
   upstream_url: string;
   description: string;
   is_custom: number;
+  proxy_mode?: ProxyMode;
+  http_proxy?: string;
+  https_proxy?: string;
+  no_proxy?: string;
 }
