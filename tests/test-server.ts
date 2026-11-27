@@ -5,7 +5,7 @@ import { VaultStore } from '../src/vault/store.js';
 export class ProxyServerTestRunner {
   private mockUpstreamPort = 8799;
   private proxyPort = 8798;
-  private mockApp: FastifyInstance = Fastify({ logger: false });
+  private mockApp: FastifyInstance = Fastify({ logger: false, forceCloseConnections: true });
   private proxyServer: CorpGateProxyServer;
   private vault = new VaultStore();
   private lastReceivedUpstreamBody: any = null;
@@ -227,8 +227,10 @@ export class ProxyServerTestRunner {
 
     await this.proxyServer.close();
     await this.mockApp.close();
+    this.vault.close();
     console.log('All tests passed successfully!');
+    process.exit(0);
   };
 }
 
-new ProxyServerTestRunner().run();
+new ProxyServerTestRunner().run().catch(error => { console.error(error); process.exit(1); });
