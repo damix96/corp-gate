@@ -1,5 +1,10 @@
 # CorpGate
 
+[![npm version](https://img.shields.io/npm/v/corp-gate.svg)](https://www.npmjs.com/package/corp-gate)
+[![CI](https://github.com/damix96/corp-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/damix96/corp-gate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js >= 22.13](https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen.svg)](package.json)
+
 **CorpGate** is built first and foremost for developers and engineering teams in corporate networks where AI coding agents (Claude Code, Codex CLI, OpenCode, Cursor, and any OpenAI/Anthropic/Gemini-compatible client) **already route model traffic through a custom `BASE_URL`** (corporate LiteLLM, Azure OpenAI, Bedrock/Vertex gateway, internal AI proxy, or a dedicated API key) rather than consumer web subscriptions.
 
 ```text
@@ -57,10 +62,6 @@ CorpGate adds a local protection layer against accidental secret leaks to cloud 
 - **Full protocol coverage:** Recursive JSON string traversal across requests and responses without unmasked JSON passthrough, plus streaming restoration for OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini, and the Antigravity wrapper.
 - **Linear-time auto-detection:** Starter rules on `re2js` ($O(N)$, ReDoS-safe) catch RFC1918 private IPs, API keys/tokens (including JWTs), database URIs, internal URLs, and `ENV`-style assignments (`AUTO_ENV_<NAME>`), and you can add custom domains and regexes.
 - **Per-connection proxy routing:** Choose `Direct`, `System proxy` (pre-filled with live `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` values), or `Custom proxy` independently for each connection.
-
-![CorpGate dashboard showing replacement occurrences and variables](docs/assets/dashboard.png)
-
-The screenshot uses demonstration data.
 
 ## Quick start
 
