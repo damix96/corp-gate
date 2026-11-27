@@ -5,6 +5,13 @@ All notable changes to CorpGate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-27
+
+### Added
+- Interactive `corp-gate init` command to discover overridden `BASE_URL` entries across environment variables, Claude Code (`settings.json`), OpenCode (`opencode.json`), and Codex CLI (`config.toml`), create full backups + `~/.corpgate/RECOVERY.md`, register routes in CorpGate, and atomically rewire selected configs (with one-line shell fallback for env variables).
+- `corp-gate restore` command to roll back modified client configs from `~/.corpgate/backups/init-manifest.json`.
+- Expanded corporate use cases, visual before/after JSON masking example, status badges, and npm/GitHub discovery keywords.
+
 ## [1.0.1] - 2026-11-27
 
 ### Added
