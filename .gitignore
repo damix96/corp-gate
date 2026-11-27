@@ -1,0 +1,17 @@
+node_modules/
+dist/
+public/
+*.log
+*.tgz
+.cache/
+.codex/
+.agents/
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+secret-test.txt
+e2e-evidence.json

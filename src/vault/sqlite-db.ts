@@ -1,0 +1,241 @@
+import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import { DefaultRoutes } from './default-routes.js';
+import { AliasRegistry } from './alias-registry.js';
+import { ManualBindings } from './manual-bindings.js';
+import { ArchivedRepresentations } from './archived-representations.js';
+import { ProtectedStorage } from './protected-storage.js';
+import { SecretProvider } from '../security/secret-provider.js';
+import { SqliteText } from './sqlite-text.js';
+
+import { SecretRow, AutoSecretRow, PatternRow, SessionRow, TransactionRow, RouteRow } from './database-types.js';
+export type { SecretRow, AutoSecretRow, PatternRow, SessionRow, TransactionRow, RouteRow } from './database-types.js';
+
+export class VaultDatabase {
+  private db: DatabaseSync;
+  private text: SqliteText;
+  private patternsVersion = 0;
+  public aliases: AliasRegistry;
+  public manualBindings: ManualBindings;
+  public archivedRepresentations: ArchivedRepresentations;
+  public protectedStorage: ProtectedStorage;
+  public getVersions = (): SecretRow[] => this.text.all<SecretRow>('SELECT ' + SqliteText.secretColumns + ' FROM secret_versions');
+  public archiveSecret = (key: string): void => { this.db.prepare('INSERT INTO secret_versions SELECT * FROM secrets WHERE key = ?').run(key); };
+  public deleteVersions = (key: string): void => { this.db.prepare('DELETE FROM secret_versions WHERE key = ?').run(key); };
+  public renameVersions = (key: string, name: string): void => { this.db.prepare('UPDATE secret_versions SET key = ? WHERE key = ?').run(name, key); };
+
+  constructor(customPath?: string, provider?: SecretProvider) {
+    const dbPath = customPath || process.env.CORPGATE_DB_PATH || path.join(os.homedir(), '.corpgate', 'vault.db');
+    if (dbPath !== ':memory:') {
+      const parentDir = path.dirname(dbPath);
+      if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+    }
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.createTables();
+    this.text = new SqliteText(this.db);
+    this.db.exec('CREATE TABLE IF NOT EXISTS secret_versions AS SELECT * FROM secrets WHERE 0;');
+    this.protectedStorage = new ProtectedStorage(this.db, provider);
+    this.aliases = new AliasRegistry(this.db);
+    this.manualBindings = new ManualBindings(this.db, this.aliases);
+    this.archivedRepresentations = new ArchivedRepresentations(this.db, this.aliases);
+    if (!this.db.prepare('PRAGMA table_info(patterns)').all().some(row => row.name === 'label_template')) this.db.exec('ALTER TABLE patterns ADD COLUMN label_template TEXT;');
+    if (!this.db.prepare('PRAGMA table_info(auto_secrets)').all().some(row => row.name === 'expires_at')) this.db.exec('ALTER TABLE auto_secrets ADD COLUMN expires_at TEXT;');
+  }
+
+  private createTables = (): void => {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS secrets (
+        key TEXT PRIMARY KEY,
+        real_value TEXT,
+        alias TEXT,
+        mask_in_ai INTEGER,
+        description TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS auto_secrets (
+        key TEXT PRIMARY KEY,
+        real_value TEXT,
+        alias TEXT,
+        hit_count INTEGER,
+        first_seen_at TEXT,
+        last_seen_at TEXT,
+        expires_at TEXT,
+        is_secret INTEGER NOT NULL DEFAULT 0,
+        protected_value TEXT NOT NULL DEFAULT ''
+      );
+      CREATE TABLE IF NOT EXISTS patterns (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        pattern TEXT,
+        type TEXT,
+        enabled INTEGER,
+        created_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        client TEXT,
+        first_seen TEXT,
+        last_seen TEXT,
+        tx_count INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        client TEXT,
+        method TEXT,
+        url TEXT,
+        status INTEGER,
+        latency_ms INTEGER,
+        prompt_text TEXT,
+        masked_prompt TEXT,
+        model_response TEXT,
+        intercepted_secrets TEXT,
+        timestamp TEXT,
+        target_provider TEXT,
+        target_url TEXT
+      );
+      CREATE INDEX IF NOT EXISTS transactions_session_time ON transactions(session_id, timestamp);
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+      CREATE TABLE IF NOT EXISTS routes (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        prefix TEXT UNIQUE,
+        upstream_url TEXT,
+        description TEXT,
+        is_custom INTEGER DEFAULT 0
+      );
+    `);
+    try {
+      this.db.exec('ALTER TABLE transactions ADD COLUMN target_provider TEXT;');
+    } catch {}
+    try {
+      this.db.exec('ALTER TABLE transactions ADD COLUMN target_url TEXT;');
+    } catch {}
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_chat_base', 'https://api.opencode.ai');
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_anthropic_base', 'https://api.anthropic.com');
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_opencode', 'https://api.opencode.ai');
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_anthropic', 'https://api.anthropic.com');
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_openai', 'https://api.openai.com');
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('upstream_ollama', 'http://127.0.0.1:11434');
+    new DefaultRoutes(this.db).initialize();
+  };
+
+  public getSecrets = (): SecretRow[] =>
+    this.text.all<SecretRow>('SELECT ' + SqliteText.secretColumns + ' FROM secrets ORDER BY created_at DESC');
+
+  public upsertSecret = (row: SecretRow): void => {
+    const stored = this.protectedStorage.prepare(row);
+    this.db.prepare(
+      'INSERT INTO secrets (key, real_value, alias, mask_in_ai, description, created_at, updated_at, is_secret, protected_value, write_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET real_value=excluded.real_value, alias=excluded.alias, mask_in_ai=excluded.mask_in_ai, description=excluded.description, updated_at=excluded.updated_at, is_secret=excluded.is_secret, protected_value=excluded.protected_value, write_revision=excluded.write_revision'
+    ).run(stored.key, stored.real_value, stored.alias, stored.mask_in_ai, stored.description, stored.created_at, stored.updated_at, stored.is_secret!, stored.protected_value!, stored.write_revision!);
+  };
+
+  public updateSecretMask = (key: string, maskInAi: boolean, updatedAt: string, expectedRevision: string): boolean => Number(this.db.prepare(
+    "UPDATE secrets SET mask_in_ai = ?, updated_at = ?, write_revision = ? WHERE key = ? AND COALESCE(write_revision, '') = ?"
+  ).run(Number(maskInAi), updatedAt, randomUUID(), key, expectedRevision).changes) === 1;
+
+  public deleteSecret = (key: string): boolean =>
+    Number(this.db.prepare('DELETE FROM secrets WHERE key = ?').run(key).changes) > 0;
+
+  public getAutoSecrets = (): AutoSecretRow[] =>
+    this.text.all<AutoSecretRow>('SELECT ' + SqliteText.autoSecretColumns + ' FROM auto_secrets ORDER BY last_seen_at DESC');
+
+  public upsertAutoSecret = (row: AutoSecretRow): void => {
+    const stored = this.protectedStorage.prepareAuto(row);
+    this.db.prepare(
+      'INSERT INTO auto_secrets (key, real_value, alias, hit_count, first_seen_at, last_seen_at, expires_at, is_secret, protected_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET real_value=excluded.real_value, alias=excluded.alias, hit_count=excluded.hit_count, last_seen_at=excluded.last_seen_at, expires_at=excluded.expires_at, is_secret=excluded.is_secret, protected_value=excluded.protected_value'
+    ).run(stored.key, stored.real_value, stored.alias, stored.hit_count, stored.first_seen_at, stored.last_seen_at, stored.expires_at ?? null, stored.is_secret!, stored.protected_value!);
+  };
+
+  public deleteAutoSecret = (key: string): boolean =>
+    Number(this.db.prepare('DELETE FROM auto_secrets WHERE key = ?').run(key).changes) > 0;
+
+  public getPatternsVersion = (): number => this.patternsVersion;
+
+  public getPatterns = (): PatternRow[] =>
+    this.db.prepare('SELECT * FROM patterns ORDER BY created_at ASC').all() as unknown as PatternRow[];
+
+  public upsertPattern = (row: PatternRow): void => {
+    this.db.prepare(
+      'INSERT OR REPLACE INTO patterns (id, name, pattern, type, enabled, created_at, label_template) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(row.id, row.name, row.pattern, row.type, row.enabled, row.created_at, row.label_template ?? null);
+    this.patternsVersion++;
+  };
+
+  public deletePattern = (id: string): boolean => {
+    const deleted = Number(this.db.prepare('DELETE FROM patterns WHERE id = ?').run(id).changes) > 0;
+    if (deleted) this.patternsVersion++;
+    return deleted;
+  };
+
+  public togglePattern = (id: string): PatternRow | null => {
+    const existing = this.db.prepare('SELECT * FROM patterns WHERE id = ?').get(id) as unknown as PatternRow | undefined;
+    if (!existing) return null;
+    const newEnabled = existing.enabled === 1 ? 0 : 1;
+    this.db.prepare('UPDATE patterns SET enabled = ? WHERE id = ?').run(newEnabled, id);
+    this.patternsVersion++;
+    return { ...existing, enabled: newEnabled };
+  };
+
+  public getSessions = (): SessionRow[] =>
+    this.db.prepare('SELECT sessions.*, (SELECT json_group_array(DISTINCT url) FROM transactions WHERE session_id = sessions.id) AS endpoints FROM sessions ORDER BY last_seen DESC').all() as unknown as SessionRow[];
+
+  public getSession = (id: string): SessionRow | null =>
+    (this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as unknown as SessionRow) || null;
+
+  public getSetting = (key: string, fallback: string = ''): string => {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row ? row.value : fallback;
+  };
+
+  public setSetting = (key: string, value: string): void => {
+    this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  };
+
+  public getAllSettings = (): Record<string, string> => {
+    const rows = this.db.prepare('SELECT key, value FROM settings').all() as unknown as { key: string; value: string }[];
+    const res: Record<string, string> = {};
+    for (const r of rows) res[r.key] = r.value;
+    return res;
+  };
+
+  public getTransactions = (limit: number = 50): TransactionRow[] =>
+    this.db.prepare('SELECT * FROM transactions ORDER BY timestamp DESC LIMIT ?').all(limit) as unknown as TransactionRow[];
+
+  public getRulePreviewPage = (offset: number, snapshot: string) => {
+    const source = 'FROM sessions s JOIN transactions t ON t.id = (SELECT id FROM transactions WHERE session_id = s.id AND timestamp <= ? ORDER BY timestamp DESC, id DESC LIMIT 1)';
+    const total = (this.db.prepare('SELECT COUNT(*) AS count ' + source).get(snapshot) as { count: number }).count;
+    const rows = this.db.prepare('SELECT t.id, t.session_id, t.client, t.url, t.timestamp, t.prompt_text AS text ' + source + ' ORDER BY s.id LIMIT 1 OFFSET ?').all(snapshot, offset);
+    return { total, rows, next: offset + rows.length };
+  };
+
+  public getTransactionsBySession = (sessionId: string): TransactionRow[] =>
+    this.db.prepare('SELECT * FROM transactions WHERE session_id = ? ORDER BY timestamp DESC').all(sessionId) as unknown as TransactionRow[];
+
+  public getTransaction = (id: string): TransactionRow | null =>
+    (this.db.prepare('SELECT * FROM transactions WHERE id = ?').get(id) as unknown as TransactionRow) || null;
+
+  public getAllRoutes = (): RouteRow[] =>
+    this.db.prepare('SELECT * FROM routes ORDER BY is_custom ASC, id ASC').all() as unknown as RouteRow[];
+
+  public hasRouteHistory = (prefix: string): boolean => Boolean(this.db.prepare("SELECT 1 FROM transactions WHERE url = '/' || ? OR instr(url, '/' || ? || '/') = 1 LIMIT 1").get(prefix, prefix));
+
+  public upsertRoute = (route: RouteRow): void => {
+    this.db.prepare(
+      'INSERT OR REPLACE INTO routes (id, name, prefix, upstream_url, description, is_custom) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(route.id, route.name, route.prefix, route.upstream_url, route.description, route.is_custom);
+  };
+
+  public deleteRoute = (id: string): boolean =>
+    Number(this.db.prepare('DELETE FROM routes WHERE id = ? AND is_custom = 1').run(id).changes) > 0;
+
+  public close = (): void => this.db.close();
+}

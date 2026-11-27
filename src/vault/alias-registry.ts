@@ -1,0 +1,92 @@
+import { DatabaseSync } from 'node:sqlite';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { SecretEntry } from '../types/index.js';
+import { SecretRepresentation, SecretRepresentations } from './secret-representations.js';
+
+export class AliasConflict extends Error {
+  statusCode = 409;
+  code = 'ALIAS_CONFLICT';
+}
+
+export class AliasRegistry {
+  constructor(private db: DatabaseSync, public randomSuffix = () => randomInt(36 ** 6).toString(36).toUpperCase().padStart(6, '0')) {
+    db.exec('CREATE TABLE IF NOT EXISTS alias_registry (alias_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, form INTEGER NOT NULL, alias TEXT); CREATE INDEX IF NOT EXISTS alias_registry_owner ON alias_registry(owner);');
+    db.exec('CREATE TABLE IF NOT EXISTS reconstructed_alias_owners (owner TEXT PRIMARY KEY);');
+  }
+
+  private hash = (alias: string): string => createHash('sha256').update(alias).digest('hex');
+  private get = (alias: string) => this.db.prepare('SELECT owner, form, alias FROM alias_registry WHERE alias_hash = ?').get(this.hash(alias)) as { owner: string; form: number; alias: string | null } | undefined;
+
+  public transaction = <T>(operation: () => T): T => {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = operation();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  };
+
+  public owner = (alias: string): string | undefined => this.get(alias)?.owner;
+  public isDurableBase = (alias: string): boolean => {
+    const row = this.get(alias);
+    return row?.form === 0 && row.alias === alias;
+  };
+
+  public reserveManual = (alias: string, owner: string): void => {
+    const current = this.get(alias);
+    if (current && current.owner !== owner) throw new AliasConflict('This name has already been used. Choose a new name.');
+    if (!current) this.db.prepare('INSERT INTO alias_registry (alias_hash, owner, form, alias) VALUES (?, ?, -1, ?)').run(this.hash(alias), owner, alias);
+  };
+
+  public transferManual = (aliases: string[], previousOwner: string, owner: string): void => {
+    if (aliases.some(alias => this.owner(alias) !== previousOwner)) throw new AliasConflict('Name reservation changed or belongs to another secret.');
+    for (const alias of aliases) this.db.prepare('UPDATE alias_registry SET owner = ?, form = -1, alias = ? WHERE alias_hash = ? AND owner = ?').run(owner, alias, this.hash(alias), previousOwner);
+  };
+
+  public forget = (alias: string): void => { this.db.prepare('UPDATE alias_registry SET alias = NULL WHERE owner = ?').run(this.owner(alias) || ''); };
+
+  public reserve = (forms: readonly SecretRepresentation[], owner: string, durable: boolean, reconstructed = false): void => {
+    if (reconstructed) this.db.prepare('INSERT OR IGNORE INTO reconstructed_alias_owners (owner) VALUES (?)').run(owner);
+    forms.forEach(({ alias }, form) => {
+      const current = this.get(alias);
+      if (current && (current.owner !== owner || current.form !== form)) throw new AliasConflict('Label is already assigned to another secret. Choose a new name.');
+      if (!current) this.db.prepare('INSERT INTO alias_registry (alias_hash, owner, form, alias) VALUES (?, ?, ?, ?)').run(this.hash(alias), owner, form, durable ? alias : null);
+      else if (durable && !current.alias) this.db.prepare('UPDATE alias_registry SET alias = ? WHERE alias_hash = ?').run(alias, this.hash(alias));
+    });
+  };
+
+  public load = (secret: SecretEntry): SecretRepresentation[] | undefined => {
+    const owner = this.owner(secret.alias);
+    if (!owner) return undefined;
+    const rows = this.db.prepare('SELECT alias, form FROM alias_registry WHERE owner = ? ORDER BY form').all(owner) as { alias: string | null; form: number }[];
+    const forms = new SecretRepresentations([secret]).get(secret);
+    if (rows.length !== forms.length || rows.some(row => !row.alias)) throw new AliasConflict('Label registry does not match the stored secret. Restore a compatible backup.');
+    return forms.map((entry, index) => ({ value: entry.value, alias: rows[index].alias! }));
+  };
+
+  public loadHistorical = (secret: SecretEntry): readonly SecretRepresentation[] => {
+    const owner = this.owner(secret.alias) || '';
+    const raw = { value: secret.realValue, alias: secret.alias };
+    if (this.db.prepare('SELECT 1 FROM reconstructed_alias_owners WHERE owner = ?').get(owner)) return [raw];
+    const values = [...new Set(Object.values(secret.variants))].filter(Boolean);
+    const rows = this.db.prepare('SELECT alias, form FROM alias_registry WHERE owner = ? AND form > 0 ORDER BY form').all(owner) as { alias: string | null; form: number }[];
+    return [raw, ...rows.flatMap(row => row.alias && values[row.form] !== undefined ? [{ value: values[row.form], alias: row.alias }] : [])];
+  };
+
+  public allocate = (secret: SecretEntry, durable: boolean, save: () => void): SecretRepresentation[] => this.transaction(() => {
+    if (this.get(secret.alias)) throw new AliasConflict('This name has already been used. Choose a new name.');
+    const owner = randomUUID();
+    const forms = new SecretRepresentations([secret]).get(secret).map((entry, index) => {
+      let alias = entry.alias;
+      let counter = 0;
+      while (index > 0 && this.get(alias)) alias = entry.alias.slice(0, -2) + '_' + (++counter) + '>}';
+      return { value: entry.value, alias };
+    });
+    this.reserve(forms, owner, durable);
+    save();
+    return forms;
+  });
+}
